@@ -1,5 +1,11 @@
 {
   "name": "bunga-ice-worker",
   "main": "src/index.js",
-  "compatibility_date": "2026-07-25"
+  "compatibility_date": "2026-07-25",
+  "kv_namespaces": [
+    {
+      "binding": "BUNGA_ICE_ORDERS",
+      "id": "975f7af558fe429987c6c869689b3d7b"
+    }
+  ]
 }
