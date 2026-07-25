@@ -81,6 +81,19 @@ async function handleTelegramUpdate(body, env) {
   const message = body.message;
   const chatId = message.chat.id;
   const text = message.text || message.caption || "";
+async function handleTelegramUpdate(body, env) {
+  const message = body.message;
+  const chatId = message.chat.id;
+  const text = message.text || message.caption || "";
+
+  if (text.trim() === "/id") {
+    await sendTelegramMessage(
+      env,
+      chatId,
+      `Chat ID kamu: ${chatId}\nENV admin: ${env.TELEGRAM_ADMIN_CHAT_ID}\nMatch: ${String(chatId) === String(env.TELEGRAM_ADMIN_CHAT_ID)}`
+    );
+    return;
+  }
   const isAdmin = String(chatId) === String(env.TELEGRAM_ADMIN_CHAT_ID);
 
   if (isAdmin) {
