@@ -23,13 +23,11 @@ export default {
       return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
     }
 
-    // Update masuk dari Telegram (webhook)
     if (body.message) {
       await handleTelegramUpdate(body, env);
       return new Response("OK", { headers: corsHeaders });
     }
 
-    // Order baru dari checkout.astro
     if (body.orderCode) {
       return handleNewOrder(body, env, corsHeaders);
     }
@@ -93,10 +91,6 @@ async function handleTelegramUpdate(body, env) {
   const message = body.message;
   const chatId = message.chat.id;
   const text = message.text || message.caption || "";
-async function handleTelegramUpdate(body, env) {
-  const message = body.message;
-  const chatId = message.chat.id;
-  const text = message.text || message.caption || "";
 
   if (text.trim() === "/id") {
     await sendTelegramMessage(
@@ -106,6 +100,7 @@ async function handleTelegramUpdate(body, env) {
     );
     return;
   }
+
   const isAdmin = String(chatId) === String(env.TELEGRAM_ADMIN_CHAT_ID);
 
   if (isAdmin) {
