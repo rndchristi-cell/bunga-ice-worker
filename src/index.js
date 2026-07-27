@@ -186,11 +186,16 @@ async function handleAdminReply(text, env) {
 }
 
 async function sendTelegramMessage(env, chatId, text) {
-  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+  const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, text }),
   });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Telegram API error ${res.status}: ${errBody}`);
+  }
 }
 
 async function forwardTelegramMessage(env, toChatId, fromChatId, messageId) {
