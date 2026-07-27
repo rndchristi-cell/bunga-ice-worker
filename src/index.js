@@ -43,20 +43,32 @@ async function handleNewOrder(order, env, corsHeaders) {
     const itemsText = order.items
       .map((item) => {
         const varian = item.varianTerpilih.map((v) => v.nama_varian).join(", ");
+        const namaLengkap = varian ? `${item.namaProduk} (${varian})` : item.namaProduk;
         const subtotal = item.hargaSatuan * item.qty;
-        return `• ${item.qty}x ${item.namaProduk} (${varian}) - Rp${subtotal.toLocaleString("id-ID")}`;
+        return `• ${item.qty}x ${namaLengkap} - Rp${subtotal.toLocaleString("id-ID")}`;
       })
       .join("\n");
 
     const ambilText = order.ambil === "hari_ini" ? "Hari ini" : "Besok";
 
-    const message =
+    let message =
       `🛍️ Order Baru!\n\n` +
       `Kode: ${order.orderCode}\n\n` +
       `${itemsText}\n\n` +
       `Total: Rp${Number(order.total).toLocaleString("id-ID")}\n` +
-      `Ambil: ${ambilText}, jam ${order.jamAmbil}\n\n` +
-      `Menunggu bukti pembayaran dari customer.`;
+      `Ambil: ${ambilText}, jam ${order.jamAmbil}`;
+
+    if (order.namaPemesan) {
+      message += `\nNama: ${order.namaPemesan}`;
+    }
+    if (order.noHp) {
+      message += `\nHP: ${order.noHp}`;
+    }
+    if (order.catatan) {
+      message += `\nCatatan: ${order.catatan}`;
+    }
+
+    message += `\n\nMenunggu bukti pembayaran dari customer.`;
 
     await sendTelegramMessage(env, env.TELEGRAM_ADMIN_CHAT_ID, message);
 
