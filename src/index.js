@@ -252,7 +252,7 @@ function checkAuth(authHeader, password) {
 function renderDashboardHtml(orders) {
   const rows = orders.map(({ order, status }) => {
     const items = order.items.map((i) => `${i.qty}x ${i.namaProduk}`).join(", ");
-    const waktu = new Date(order.createdAt).toLocaleString("id-ID");
+    const waktu = new Date(order.createdAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
     return `<tr>
       <td>${order.orderCode}</td>
       <td>${order.namaPemesan || "-"}</td>
@@ -310,10 +310,7 @@ function formatStruk(order) {
     .join("\n");
 
   const ambilText = order.ambil === "hari_ini" ? "Hari ini" : "Besok";
-  const waktu = new Date(order.createdAt).toLocaleString("id-ID", {
-    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
-  });
-
+  const waktu = new Date(order.createdAt).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" });
   return (
     "```\n" +
     "     BUNGA ICE AND SNACK\n" +
