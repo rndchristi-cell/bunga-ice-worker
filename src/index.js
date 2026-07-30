@@ -84,12 +84,13 @@ async function handleNewOrder(order, env, corsHeaders) {
       JSON.stringify({ success: true, orderCode: order.orderCode }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ success: false, error: err.message }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
+} catch (err) {
+  console.log("ERROR DI HANDLENEWORDER:", err.message);
+  return new Response(
+    JSON.stringify({ success: false, error: err.message }),
+    { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+  );
+}
 }
 
 async function handleTelegramUpdate(body, env) {
@@ -172,7 +173,9 @@ async function handleAdminReply(text, env) {
   data.status = "diterima";
   const struk = formatStruk(data.order);
   await sendTelegramMessage(env, data.chatId, struk);
-}else if (command === "masalah") {
+}
+
+else if (command === "masalah") {
     const alasan = parts.slice(2).join(" ") || "Ada kendala pada bukti pembayaran";
     data.status = "masalah";
     await sendTelegramMessage(
@@ -180,7 +183,9 @@ async function handleAdminReply(text, env) {
       data.chatId,
       `⚠️ Ada kendala pada order ${orderCode}: ${alasan}\n\nMohon hubungi kami lagi di sini ya.`
     );
-  } else {
+  }
+
+ else {
     return;
   }
 
