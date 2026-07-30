@@ -9,12 +9,17 @@ export default {
     };
 
     if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
-    }
+  return new Response(null, { headers: corsHeaders });
+}
 
-    if (request.method !== "POST") {
-      return new Response("Method not allowed", { status: 405, headers: corsHeaders });
-    }
+const url = new URL(request.url);
+if (request.method === "GET" && url.pathname === "/admin") {
+  return handleAdminDashboard(request, env);
+}
+
+if (request.method !== "POST") {
+  return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+}
 
     let body;
     try {
@@ -208,4 +213,77 @@ async function forwardTelegramMessage(env, toChatId, fromChatId, messageId) {
       message_id: messageId,
     }),
   });
+}
+
+async function handleAdminDashboard(request, env) {
+  const auth = request.headers.get("Authorization");
+  const valid = auth && checkAuth(auth, env.ADMIN_PASSWORD);
+
+  if (!valid) {
+    return new Response("Auth required", {
+      status: 401,
+      headers: { "WWW-Authenticate": 'Basic realm="Bunga Ice Admin"' },
+    });
+  }
+
+  const list = await env.BUNGA_ICE_ORDERS.list({ prefix: "order:" });
+  const orders = [];
+  for (const key of list.keys) {
+    const raw = await env.BUNGA_ICE_ORDERS.get(key.name);
+    if (raw) orders.push(JSON.parse(raw));
+  }
+
+  orders.sort((a, b) => new Date(b.order.createdAt) - new Date(a.order.createdAt));
+
+  return new Response(renderDashboardHtml(orders), {
+    headers: { "Content-Type": "text/html; charset=UTF-8" },
+  });
+}
+
+function checkAuth(authHeader, password) {
+  const encoded = authHeader.replace("Basic ", "");
+  const decoded = atob(encoded);
+  const pass = decoded.split(":")[1];
+  return pass === password;
+}
+
+function renderDashboardHtml(orders) {
+  const rows = orders.map(({ order, status }) => {
+    const items = order.items.map((i) => `${i.qty}x ${i.namaProduk}`).join(", ");
+    const waktu = new Date(order.createdAt).toLocaleString("id-ID");
+    return `<tr>
+      <td>${order.orderCode}</td>
+      <td>${order.namaPemesan || "-"}</td>
+      <td>${items}</td>
+      <td>Rp${Number(order.total).toLocaleString("id-ID")}</td>
+      <td>${status}</td>
+      <td>${waktu}</td>
+    </tr>`;
+  }).join("");
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard Bunga Ice</title>
+<style>
+  body { font-family: system-ui, sans-serif; background:#111; color:#eee; padding:1rem; }
+  table { width:100%; border-collapse: collapse; font-size:0.85rem; }
+  th, td { border:1px solid #333; padding:8px; text-align:left; }
+  th { background:#222; }
+  tr:nth-child(even) { background:#1a1a1a; }
+</style>
+</head>
+<body>
+<h1>📊 Dashboard Order - Bunga Ice</h1>
+<p>Total order: ${orders.length}</p>
+<table>
+<thead>
+<tr><th>Kode</th><th>Nama</th><th>Produk</th><th>Total</th><th>Status</th><th>Waktu</th></tr>
+</thead>
+<tbody>${rows}</tbody>
+</table>
+</body>
+</html>`;
 }
