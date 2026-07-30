@@ -268,22 +268,27 @@ function renderDashboardHtml(orders) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dashboard Bunga Ice</title>
 <style>
-  body { font-family: system-ui, sans-serif; background:#111; color:#eee; padding:1rem; }
-  table { width:100%; border-collapse: collapse; font-size:0.85rem; }
-  th, td { border:1px solid #333; padding:8px; text-align:left; }
-  th { background:#222; }
+  body { font-family: system-ui, sans-serif; background:#111; color:#eee; padding:1rem; margin:0; }
+  h1 { font-size:1.3rem; }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width:100%; min-width:600px; border-collapse: collapse; font-size:0.8rem; }
+  th, td { border:1px solid #333; padding:6px 8px; text-align:left; white-space: nowrap; }
+  td:nth-child(3) { white-space: normal; min-width:150px; }
+  th { background:#222; position: sticky; top:0; }
   tr:nth-child(even) { background:#1a1a1a; }
 </style>
 </head>
 <body>
 <h1>📊 Dashboard Order - Bunga Ice</h1>
 <p>Total order: ${orders.length}</p>
+<div class="table-wrap">
 <table>
 <thead>
 <tr><th>Kode</th><th>Nama</th><th>Produk</th><th>Total</th><th>Status</th><th>Waktu</th></tr>
 </thead>
 <tbody>${rows}</tbody>
 </table>
+</div>
 </body>
 </html>`;
 }
