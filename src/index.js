@@ -302,21 +302,33 @@ function formatStruk(order) {
       const varian = item.varianTerpilih.map((v) => v.nama_varian).join(", ");
       const namaLengkap = varian ? `${item.namaProduk} (${varian})` : item.namaProduk;
       const subtotal = item.hargaSatuan * item.qty;
-      return `${item.qty}x ${namaLengkap} - Rp${subtotal.toLocaleString("id-ID")}`;
+      const namaPotong = namaLengkap.length > 20 ? namaLengkap.slice(0, 20) : namaLengkap;
+      const hargaText = `Rp${subtotal.toLocaleString("id-ID")}`;
+      const spasi = " ".repeat(Math.max(1, 24 - namaPotong.length - hargaText.length));
+      return `${item.qty}x ${namaPotong}${spasi}${hargaText}`;
     })
     .join("\n");
 
   const ambilText = order.ambil === "hari_ini" ? "Hari ini" : "Besok";
+  const waktu = new Date(order.createdAt).toLocaleString("id-ID", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
+  });
 
   return (
-    `✅ PEMBAYARAN DIKONFIRMASI\n\n` +
-    `🧾 STRUK PESANAN\n` +
-    `Kode: ${order.orderCode}\n` +
-    `━━━━━━━━━━━━━━━\n` +
+    "```\n" +
+    "     BUNGA ICE AND SNACK\n" +
+    "  \"where every flavor tells a story\"\n" +
+    "────────────────────────\n" +
+    `Kode : ${order.orderCode}\n` +
+    `Tgl  : ${waktu}\n` +
+    "────────────────────────\n" +
     `${itemsText}\n` +
-    `━━━━━━━━━━━━━━━\n` +
-    `Total: Rp${Number(order.total).toLocaleString("id-ID")}\n\n` +
+    "────────────────────────\n" +
+    `TOTAL${" ".repeat(19 - String(Number(order.total).toLocaleString("id-ID")).length)}Rp${Number(order.total).toLocaleString("id-ID")}\n` +
+    "────────────────────────\n\n" +
     `Ambil: ${ambilText}, jam ${order.jamAmbil}\n\n` +
-    `Tunjukin struk ini ke kakak pas ambil pesanan ya. Terima kasih! 🙏`
+    "Tunjukin struk ini ke kakak\n" +
+    "pas ambil pesanan ya 🙏\n" +
+    "```"
   );
 }
