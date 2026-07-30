@@ -169,13 +169,10 @@ async function handleAdminReply(text, env) {
   }
 
   if (command === "ok") {
-    data.status = "diterima";
-    await sendTelegramMessage(
-      env,
-      data.chatId,
-      `✅ Pembayaran buat order ${orderCode} udah dikonfirmasi! Pesanan kamu segera diproses. Terima kasih! 🙏`
-    );
-  } else if (command === "masalah") {
+  data.status = "diterima";
+  const struk = formatStruk(data.order);
+  await sendTelegramMessage(env, data.chatId, struk);
+}else if (command === "masalah") {
     const alasan = parts.slice(2).join(" ") || "Ada kendala pada bukti pembayaran";
     data.status = "masalah";
     await sendTelegramMessage(
@@ -260,6 +257,31 @@ function renderDashboardHtml(orders) {
       <td>${waktu}</td>
     </tr>`;
   }).join("");
+  
+  function formatStruk(order) {
+  const itemsText = order.items
+    .map((item) => {
+      const varian = item.varianTerpilih.map((v) => v.nama_varian).join(", ");
+      const namaLengkap = varian ? `${item.namaProduk} (${varian})` : item.namaProduk;
+      const subtotal = item.hargaSatuan * item.qty;
+      return `${item.qty}x ${namaLengkap} - Rp${subtotal.toLocaleString("id-ID")}`;
+    })
+    .join("\n");
+
+  const ambilText = order.ambil === "hari_ini" ? "Hari ini" : "Besok";
+
+  return (
+    `✅ PEMBAYARAN DIKONFIRMASI\n\n` +
+    `🧾 STRUK PESANAN\n` +
+    `Kode: ${order.orderCode}\n` +
+    `━━━━━━━━━━━━━━━\n` +
+    `${itemsText}\n` +
+    `━━━━━━━━━━━━━━━\n` +
+    `Total: Rp${Number(order.total).toLocaleString("id-ID")}\n\n` +
+    `Ambil: ${ambilText}, jam ${order.jamAmbil}\n\n` +
+    `Tunjukin struk ini ke kakak pas ambil pesanan ya. Terima kasih! 🙏`
+  );
+}
 
   return `<!DOCTYPE html>
 <html>
