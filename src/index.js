@@ -263,30 +263,7 @@ function renderDashboardHtml(orders) {
     </tr>`;
   }).join("");
   
-  function formatStruk(order) {
-  const itemsText = order.items
-    .map((item) => {
-      const varian = item.varianTerpilih.map((v) => v.nama_varian).join(", ");
-      const namaLengkap = varian ? `${item.namaProduk} (${varian})` : item.namaProduk;
-      const subtotal = item.hargaSatuan * item.qty;
-      return `${item.qty}x ${namaLengkap} - Rp${subtotal.toLocaleString("id-ID")}`;
-    })
-    .join("\n");
-
-  const ambilText = order.ambil === "hari_ini" ? "Hari ini" : "Besok";
-
-  return (
-    `✅ PEMBAYARAN DIKONFIRMASI\n\n` +
-    `🧾 STRUK PESANAN\n` +
-    `Kode: ${order.orderCode}\n` +
-    `━━━━━━━━━━━━━━━\n` +
-    `${itemsText}\n` +
-    `━━━━━━━━━━━━━━━\n` +
-    `Total: Rp${Number(order.total).toLocaleString("id-ID")}\n\n` +
-    `Ambil: ${ambilText}, jam ${order.jamAmbil}\n\n` +
-    `Tunjukin struk ini ke kakak pas ambil pesanan ya. Terima kasih! 🙏`
-  );
-}
+  
 
   return `<!DOCTYPE html>
 <html>
@@ -318,4 +295,28 @@ function renderDashboardHtml(orders) {
 </div>
 </body>
 </html>`;
+}
+function formatStruk(order) {
+  const itemsText = order.items
+    .map((item) => {
+      const varian = item.varianTerpilih.map((v) => v.nama_varian).join(", ");
+      const namaLengkap = varian ? `${item.namaProduk} (${varian})` : item.namaProduk;
+      const subtotal = item.hargaSatuan * item.qty;
+      return `${item.qty}x ${namaLengkap} - Rp${subtotal.toLocaleString("id-ID")}`;
+    })
+    .join("\n");
+
+  const ambilText = order.ambil === "hari_ini" ? "Hari ini" : "Besok";
+
+  return (
+    `✅ PEMBAYARAN DIKONFIRMASI\n\n` +
+    `🧾 STRUK PESANAN\n` +
+    `Kode: ${order.orderCode}\n` +
+    `━━━━━━━━━━━━━━━\n` +
+    `${itemsText}\n` +
+    `━━━━━━━━━━━━━━━\n` +
+    `Total: Rp${Number(order.total).toLocaleString("id-ID")}\n\n` +
+    `Ambil: ${ambilText}, jam ${order.jamAmbil}\n\n` +
+    `Tunjukin struk ini ke kakak pas ambil pesanan ya. Terima kasih! 🙏`
+  );
 }
