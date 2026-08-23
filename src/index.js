@@ -140,6 +140,54 @@ async function handleAdminApi(request, env, corsHeaders, url) {
     await env.BUNGA_ICE_DB.prepare(`UPDATE products SET name = ?, description = ?, base_price = ?, is_active = ?, is_available = ?, sort_order = ?, updated_at = datetime('now') WHERE id = ?`).bind(String(body.name).trim(), String(body.description || "").trim(), Math.max(0, Math.round(Number(body.base_price))), body.is_active === false ? 0 : 1, body.is_available === false ? 0 : 1, Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0, String(body.id)).run();
     return jsonResponse({ success: true }, 200, corsHeaders);
   }
+  if (url.pathname === "/api/admin/variants" && request.method === "GET") {
+    const productId = url.searchParams.get("product_id");
+    if (!productId) return jsonResponse({ success: false, error: "product_id wajib diisi" }, 400, corsHeaders);
+    const groups = await env.BUNGA_ICE_DB.prepare(`SELECT id, name, input_type, is_required, sort_order, is_active FROM variant_groups WHERE product_id = ? ORDER BY sort_order, name`).bind(productId).all();
+    const variants = await env.BUNGA_ICE_DB.prepare(`SELECT v.id, v.group_id, v.name, v.price_delta, v.sort_order, v.is_active FROM variants v JOIN variant_groups g ON g.id = v.group_id WHERE g.product_id = ? ORDER BY v.group_id, v.sort_order, v.name`).bind(productId).all();
+    return jsonResponse({ groups: groups.results || [], variants: variants.results || [] }, 200, corsHeaders);
+  }
+  if (url.pathname === "/api/admin/variants" && request.method === "PUT") {
+    const body = await request.json();
+    const productId = String(body.product_id || "");
+    if (!productId || !Array.isArray(body.groups)) return jsonResponse({ success: false, error: "product_id dan groups wajib diisi" }, 400, corsHeaders);
+    const statements = [env.BUNGA_ICE_DB.prepare(`UPDATE variant_groups SET is_active = 0 WHERE product_id = ?`).bind(productId)];
+    for (const [gi, group] of body.groups.entries()) {
+      const groupId = String(group.id || `VG-${productId}-${crypto.randomUUID().slice(0, 8)}`);
+      statements.push(env.BUNGA_ICE_DB.prepare(`INSERT INTO variant_groups (id, product_id, name, input_type, is_required, sort_order, is_active) VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT(id) DO UPDATE SET name=excluded.name,input_type=excluded.input_type,is_required=excluded.is_required,sort_order=excluded.sort_order,is_active=1`).bind(groupId, productId, String(group.name || "Pilihan").trim(), String(group.input_type || "radio"), group.is_required ? 1 : 0, gi));
+      for (const [vi, variant] of (Array.isArray(group.variants) ? group.variants : []).entries()) {
+        const variantId = String(variant.id || `V-${crypto.randomUUID().slice(0, 8)}`);
+        statements.push(env.BUNGA_ICE_DB.prepare(`INSERT INTO variants (id, group_id, name, price_delta, sort_order, is_active) VALUES (?, ?, ?, ?, ?, 1) ON CONFLICT(id) DO UPDATE SET group_id=excluded.group_id,name=excluded.name,price_delta=excluded.price_delta,sort_order=excluded.sort_order,is_active=1`).bind(variantId, groupId, String(variant.name || "").trim(), Math.round(Number(variant.price_delta || 0)), vi));
+      }
+    }
+    await env.BUNGA_ICE_DB.batch(statements);
+    return jsonResponse({ success: true }, 200, corsHeaders);
+  }
+  if (url.pathname === "/api/admin/orders" && request.method === "GET") {
+    const status = url.searchParams.get("status");
+    const query = status ? `SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC LIMIT 100` : `SELECT * FROM orders ORDER BY created_at DESC LIMIT 100`;
+    const result = status ? await env.BUNGA_ICE_DB.prepare(query).bind(status).all() : await env.BUNGA_ICE_DB.prepare(query).all();
+    return jsonResponse({ orders: result.results || [] }, 200, corsHeaders);
+  }
+  const orderStatusMatch = url.pathname.match(/^\/api\/admin\/orders\/([^/]+)\/status$/);
+  if (orderStatusMatch && request.method === "PUT") {
+    const body = await request.json();
+    const allowed = ["menunggu_bukti", "diterima", "masalah", "selesai", "dibatalkan"];
+    if (!allowed.includes(body.status)) return jsonResponse({ success: false, error: "Status tidak valid" }, 400, corsHeaders);
+    await env.BUNGA_ICE_DB.prepare(`UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?`).bind(body.status, orderStatusMatch[1]).run();
+    return jsonResponse({ success: true }, 200, corsHeaders);
+  }
+  if (url.pathname === "/api/admin/settings" && request.method === "GET") {
+    const result = await env.BUNGA_ICE_DB.prepare(`SELECT key, value FROM store_settings ORDER BY key`).all();
+    return jsonResponse({ settings: result.results || [] }, 200, corsHeaders);
+  }
+  if (url.pathname === "/api/admin/settings" && request.method === "PUT") {
+    const body = await request.json();
+    if (!body || typeof body !== "object") return jsonResponse({ success: false, error: "Format setting tidak valid" }, 400, corsHeaders);
+    const entries = Object.entries(body).filter(([key, value]) => /^[a-z0-9_]{1,50}$/.test(key) && typeof value === "string");
+    await env.BUNGA_ICE_DB.batch(entries.map(([key, value]) => env.BUNGA_ICE_DB.prepare(`INSERT INTO store_settings (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=datetime('now')`).bind(key, value.slice(0, 500))));
+    return jsonResponse({ success: true }, 200, corsHeaders);
+  }
   if (url.pathname === "/api/admin/upload" && request.method === "POST") {
     if (!env.BUNGA_ICE_ASSETS) return jsonResponse({ success: false, error: "R2 belum terpasang" }, 503, corsHeaders);
     const form = await request.formData();
@@ -147,9 +195,16 @@ async function handleAdminApi(request, env, corsHeaders, url) {
     if (!(file instanceof File)) return jsonResponse({ success: false, error: "file wajib diisi" }, 400, corsHeaders);
     if (!file.type.startsWith("image/") || file.size > 5 * 1024 * 1024) return jsonResponse({ success: false, error: "File harus gambar maksimal 5MB" }, 400, corsHeaders);
     const safeName = file.name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+    const productId = String(form.get("product_id") || "");
     const key = `products/${crypto.randomUUID()}-${safeName}`;
     await env.BUNGA_ICE_ASSETS.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
-    return jsonResponse({ success: true, object_key: key, url: `/media/${encodeURIComponent(key)}` }, 201, corsHeaders);
+    if (productId) {
+      const product = await env.BUNGA_ICE_DB.prepare(`SELECT id FROM products WHERE id = ?`).bind(productId).first();
+      if (!product) return jsonResponse({ success: false, error: "Produk tidak ditemukan" }, 404, corsHeaders);
+      const imageId = crypto.randomUUID();
+      await env.BUNGA_ICE_DB.prepare(`INSERT INTO product_images (id, product_id, object_key, alt_text, sort_order) VALUES (?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM product_images WHERE product_id = ?), 0))`).bind(imageId, productId, key, file.name.slice(0, 120), productId).run();
+    }
+    return jsonResponse({ success: true, object_key: key, url: `/media/${encodeURIComponent(key)}`, product_id: productId || null }, 201, corsHeaders);
   }
   return jsonResponse({ success: false, error: "Admin route tidak ditemukan" }, 404, corsHeaders);
 }
