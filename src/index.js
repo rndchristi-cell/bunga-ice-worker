@@ -194,7 +194,7 @@ async function handleNewOrder(order, env, corsHeaders) {
 
     const orderId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
-    const orderInsert = env.BUNGA_ICE_DB.prepare(`INSERT INTO orders (id, order_code, customer_name, customer_phone, pickup_day, pickup_time, note, status, total, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'menunggu_bukti', ?, ?, ?)`).bind(orderId, order.orderCode, String(order.namaPemesan || "").slice(0, 120), String(order.noHp || "").slice(0, 40), order.ambil, order.jamAmbil, String(order.catatan || "").slice(0, 500), serverTotal, createdAt);
+    const orderInsert = env.BUNGA_ICE_DB.prepare(`INSERT INTO orders (id, order_code, customer_name, customer_phone, pickup_day, pickup_time, note, status, total, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'menunggu_bukti', ?, ?)`).bind(orderId, order.orderCode, String(order.namaPemesan || "").slice(0, 120), String(order.noHp || "").slice(0, 40), order.ambil, order.jamAmbil, String(order.catatan || "").slice(0, 500), serverTotal, createdAt);
     const itemStatements = normalized.map((item) => env.BUNGA_ICE_DB.prepare(`INSERT INTO order_items (id, order_id, product_id, product_name_snapshot, unit_price_snapshot, quantity, variants_json, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(crypto.randomUUID(), orderId, item.productId, item.productName, item.unitPrice, item.quantity, JSON.stringify(item.variants), item.subtotal));
     await env.BUNGA_ICE_DB.batch([orderInsert, ...itemStatements]);
 
