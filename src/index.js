@@ -169,6 +169,13 @@ async function handleAdminApi(request, env, corsHeaders, url) {
     const result = status ? await env.BUNGA_ICE_DB.prepare(query).bind(status).all() : await env.BUNGA_ICE_DB.prepare(query).all();
     return jsonResponse({ orders: result.results || [] }, 200, corsHeaders);
   }
+  const orderDetailMatch = url.pathname.match(/^\/api\/admin\/orders\/([^/]+)$/);
+  if (orderDetailMatch && request.method === "GET") {
+    const order = await env.BUNGA_ICE_DB.prepare(`SELECT * FROM orders WHERE id = ?`).bind(orderDetailMatch[1]).first();
+    if (!order) return jsonResponse({ success: false, error: "Order tidak ditemukan" }, 404, corsHeaders);
+    const items = await env.BUNGA_ICE_DB.prepare(`SELECT * FROM order_items WHERE order_id = ? ORDER BY rowid`).bind(orderDetailMatch[1]).all();
+    return jsonResponse({ order, items: items.results || [] }, 200, corsHeaders);
+  }
   const orderStatusMatch = url.pathname.match(/^\/api\/admin\/orders\/([^/]+)\/status$/);
   if (orderStatusMatch && request.method === "PUT") {
     const body = await request.json();
@@ -186,6 +193,20 @@ async function handleAdminApi(request, env, corsHeaders, url) {
     if (!body || typeof body !== "object") return jsonResponse({ success: false, error: "Format setting tidak valid" }, 400, corsHeaders);
     const entries = Object.entries(body).filter(([key, value]) => /^[a-z0-9_]{1,50}$/.test(key) && typeof value === "string");
     await env.BUNGA_ICE_DB.batch(entries.map(([key, value]) => env.BUNGA_ICE_DB.prepare(`INSERT INTO store_settings (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=datetime('now')`).bind(key, value.slice(0, 500))));
+    return jsonResponse({ success: true }, 200, corsHeaders);
+  }
+  if (url.pathname === "/api/admin/images" && request.method === "GET") {
+    const productId = url.searchParams.get("product_id");
+    if (!productId) return jsonResponse({ success: false, error: "product_id wajib diisi" }, 400, corsHeaders);
+    const result = await env.BUNGA_ICE_DB.prepare(`SELECT id, product_id, object_key, alt_text, sort_order FROM product_images WHERE product_id = ? ORDER BY sort_order, created_at`).bind(productId).all();
+    return jsonResponse({ images: result.results || [] }, 200, corsHeaders);
+  }
+  const imageMatch = url.pathname.match(/^\/api\/admin\/images\/([^/]+)$/);
+  if (imageMatch && request.method === "DELETE") {
+    const image = await env.BUNGA_ICE_DB.prepare(`SELECT object_key FROM product_images WHERE id = ?`).bind(imageMatch[1]).first();
+    if (!image) return jsonResponse({ success: false, error: "Foto tidak ditemukan" }, 404, corsHeaders);
+    if (env.BUNGA_ICE_ASSETS) await env.BUNGA_ICE_ASSETS.delete(image.object_key);
+    await env.BUNGA_ICE_DB.prepare(`DELETE FROM product_images WHERE id = ?`).bind(imageMatch[1]).run();
     return jsonResponse({ success: true }, 200, corsHeaders);
   }
   if (url.pathname === "/api/admin/upload" && request.method === "POST") {
