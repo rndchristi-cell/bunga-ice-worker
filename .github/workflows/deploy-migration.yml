@@ -8,17 +8,36 @@ jobs:
     runs-on: ubuntu-latest
     environment: migration
     steps:
-      - name: Checkout
+      - name: Checkout Worker migration branch
         uses: actions/checkout@v4
+        with:
+          ref: migration-d1-r2
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       - name: Deploy Worker uji
         run: npx wrangler@4.125.0 deploy --config wrangler.migration.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Download product test assets
+        run: |
+          mkdir -p /tmp/product-assets
+          curl -fL https://raw.githubusercontent.com/rndchristi-cell/bunga-ice-astro/main/public/produk/pop-ice.webp -o /tmp/product-assets/pop-ice.webp
+          curl -fL https://raw.githubusercontent.com/rndchristi-cell/bunga-ice-astro/main/public/produk/pop-ice-varian.webp -o /tmp/product-assets/pop-ice-varian.webp
+          curl -fL https://raw.githubusercontent.com/rndchristi-cell/bunga-ice-astro/main/public/produk/pop-ice-topping.webp -o /tmp/product-assets/pop-ice-topping.webp
+          curl -fL https://raw.githubusercontent.com/rndchristi-cell/bunga-ice-astro/main/public/produk/mie-ayam.webp -o /tmp/product-assets/mie-ayam.webp
+
+      - name: Upload product assets to remote R2
+        run: |
+          npx wrangler@4.125.0 r2 object put bunga-ice-assets/products/p001-pop-ice.webp --file=/tmp/product-assets/pop-ice.webp --content-type=image/webp --remote
+          npx wrangler@4.125.0 r2 object put bunga-ice-assets/products/p001-pop-ice-varian.webp --file=/tmp/product-assets/pop-ice-varian.webp --content-type=image/webp --remote
+          npx wrangler@4.125.0 r2 object put bunga-ice-assets/products/p001-pop-ice-topping.webp --file=/tmp/product-assets/pop-ice-topping.webp --content-type=image/webp --remote
+          npx wrangler@4.125.0 r2 object put bunga-ice-assets/products/p002-mie-ayam.webp --file=/tmp/product-assets/mie-ayam.webp --content-type=image/webp --remote
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
