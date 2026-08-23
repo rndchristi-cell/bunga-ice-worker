@@ -189,9 +189,27 @@ async function handleAdminApi(request, env, corsHeaders, url) {
   }
   if (url.pathname === "/api/admin/orders" && request.method === "GET") {
     const status = url.searchParams.get("status");
-    const query = status ? `SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC LIMIT 100` : `SELECT * FROM orders ORDER BY created_at DESC LIMIT 100`;
-    const result = status ? await env.BUNGA_ICE_DB.prepare(query).bind(status).all() : await env.BUNGA_ICE_DB.prepare(query).all();
-    return jsonResponse({ orders: result.results || [] }, 200, corsHeaders);
+    const date = url.searchParams.get("date");
+    const validDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
+    const conditions = [];
+    const params = [];
+    if (validDate) { conditions.push("date(created_at, '+7 hours') = ?"); params.push(validDate); }
+    if (status) { conditions.push("status = ?"); params.push(status); }
+    const where = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
+    const query = `SELECT * FROM orders${where} ORDER BY created_at DESC LIMIT 100`;
+    const result = await env.BUNGA_ICE_DB.prepare(query).bind(...params).all();
+    return jsonResponse({ orders: result.results || [], date: validDate || null }, 200, corsHeaders);
+  }
+  if (url.pathname === "/api/admin/orders/summary" && request.method === "GET") {
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    const validFrom = from && /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : "";
+    const validTo = to && /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : "";
+    if (!validFrom || !validTo) return jsonResponse({ success: false, error: "from dan to wajib berupa tanggal YYYY-MM-DD" }, 400, corsHeaders);
+    const result = await env.BUNGA_ICE_DB.prepare(`SELECT date(created_at, '+7 hours') AS order_date, COUNT(*) AS order_count, COALESCE(SUM(total), 0) AS total, SUM(CASE WHEN status = 'selesai' THEN 1 ELSE 0 END) AS completed_count, SUM(CASE WHEN status = 'dibatalkan' THEN 1 ELSE 0 END) AS cancelled_count FROM orders WHERE date(created_at, '+7 hours') BETWEEN ? AND ? GROUP BY order_date ORDER BY order_date DESC`).bind(validFrom, validTo).all();
+    const days = result.results || [];
+    const totals = days.reduce((acc, day) => ({ order_count: acc.order_count + Number(day.order_count || 0), total: acc.total + Number(day.total || 0), completed_count: acc.completed_count + Number(day.completed_count || 0), cancelled_count: acc.cancelled_count + Number(day.cancelled_count || 0) }), { order_count: 0, total: 0, completed_count: 0, cancelled_count: 0 });
+    return jsonResponse({ from: validFrom, to: validTo, totals, days }, 200, corsHeaders);
   }
   const orderDetailMatch = url.pathname.match(/^\/api\/admin\/orders\/([^/]+)$/);
   if (orderDetailMatch && request.method === "GET") {
