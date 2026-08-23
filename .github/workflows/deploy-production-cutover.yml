@@ -18,15 +18,15 @@ jobs:
         with:
           node-version: 22
 
-      - name: Deploy SQL/R2 Worker to production name
-        run: npx wrangler@4.125.0 deploy --config wrangler.jsonc
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
       - name: Ensure production admin password is present
         run: printf '%s' "$ADMIN_PASSWORD" | npx wrangler@4.125.0 secret put ADMIN_PASSWORD --config wrangler.jsonc
         env:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy SQL/R2 Worker to production name
+        run: npx wrangler@4.125.0 deploy --config wrangler.jsonc
+        env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
