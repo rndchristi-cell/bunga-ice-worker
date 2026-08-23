@@ -151,7 +151,10 @@ async function handleAdminApi(request, env, corsHeaders, url) {
     const body = await request.json();
     const productId = String(body.product_id || "");
     if (!productId || !Array.isArray(body.groups)) return jsonResponse({ success: false, error: "product_id dan groups wajib diisi" }, 400, corsHeaders);
-    const statements = [env.BUNGA_ICE_DB.prepare(`UPDATE variant_groups SET is_active = 0 WHERE product_id = ?`).bind(productId)];
+    const statements = [
+      env.BUNGA_ICE_DB.prepare(`UPDATE variant_groups SET is_active = 0 WHERE product_id = ?`).bind(productId),
+      env.BUNGA_ICE_DB.prepare(`DELETE FROM variants WHERE group_id IN (SELECT id FROM variant_groups WHERE product_id = ?)`).bind(productId)
+    ];
     for (const [gi, group] of body.groups.entries()) {
       const groupId = String(group.id || `VG-${productId}-${crypto.randomUUID().slice(0, 8)}`);
       statements.push(env.BUNGA_ICE_DB.prepare(`INSERT INTO variant_groups (id, product_id, name, input_type, is_required, sort_order, is_active) VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT(id) DO UPDATE SET name=excluded.name,input_type=excluded.input_type,is_required=excluded.is_required,sort_order=excluded.sort_order,is_active=1`).bind(groupId, productId, String(group.name || "Pilihan").trim(), String(group.input_type || "radio"), group.is_required ? 1 : 0, gi));
