@@ -290,6 +290,20 @@ async function handleNewOrder(order, env, corsHeaders) {
   }
 }
 
+async function getD1OrderContext(orderCode, env) {
+  if (!env.BUNGA_ICE_DB) return null;
+  const order = await env.BUNGA_ICE_DB.prepare(`SELECT * FROM orders WHERE order_code = ?`).bind(orderCode).first();
+  if (!order) return null;
+  const itemResult = await env.BUNGA_ICE_DB.prepare(`SELECT * FROM order_items WHERE order_id = ? ORDER BY rowid`).bind(order.id).all();
+  const items = (itemResult.results || []).map((item) => ({
+    qty: item.quantity,
+    namaProduk: item.product_name_snapshot,
+    hargaSatuan: item.unit_price_snapshot,
+    varianTerpilih: (() => { try { return JSON.parse(item.variants_json || "[]"); } catch { return []; } })()
+  }));
+  return { order: { orderCode: order.order_code, namaPemesan: order.customer_name, noHp: order.customer_phone, ambil: order.pickup_day, jamAmbil: order.pickup_time, catatan: order.note, total: order.total, createdAt: order.created_at, items }, status: order.status, chatId: order.telegram_chat_id };
+}
+
 async function handleTelegramUpdate(body, env) {
   const message = body.message;
   const chatId = message.chat.id;
@@ -322,16 +336,20 @@ async function handleTelegramUpdate(body, env) {
   }
 
   const orderCode = match[0];
-  const dataRaw = await env.BUNGA_ICE_ORDERS.get(`order:${orderCode}`);
-
-  if (!dataRaw) {
-    await sendTelegramMessage(env, chatId, `Kode pesanan ${orderCode} nggak ketemu. Coba cek lagi ya.`);
-    return;
+  let data = await getD1OrderContext(orderCode, env);
+  if (data) {
+    await env.BUNGA_ICE_DB.prepare(`UPDATE orders SET telegram_chat_id = ?, updated_at = datetime('now') WHERE order_code = ?`).bind(String(chatId), orderCode).run();
+    data.chatId = chatId;
+  } else {
+    const dataRaw = await env.BUNGA_ICE_ORDERS.get(`order:${orderCode}`);
+    if (!dataRaw) {
+      await sendTelegramMessage(env, chatId, `Kode pesanan ${orderCode} nggak ketemu. Coba cek lagi ya.`);
+      return;
+    }
+    data = JSON.parse(dataRaw);
+    data.chatId = chatId;
+    await env.BUNGA_ICE_ORDERS.put(`order:${orderCode}`, JSON.stringify(data));
   }
-
-  const data = JSON.parse(dataRaw);
-  data.chatId = chatId;
-  await env.BUNGA_ICE_ORDERS.put(`order:${orderCode}`, JSON.stringify(data));
 
   await forwardTelegramMessage(env, env.TELEGRAM_ADMIN_CHAT_ID, chatId, message.message_id);
   await sendTelegramMessage(
@@ -347,46 +365,37 @@ async function handleAdminReply(text, env) {
   const parts = text.trim().split(" ");
   const command = parts[0]?.toLowerCase();
   const orderCode = parts[1];
-
   if (!orderCode || !ORDER_CODE_REGEX.test(orderCode)) return;
 
-  const dataRaw = await env.BUNGA_ICE_ORDERS.get(`order:${orderCode}`);
-  if (!dataRaw) {
-    await sendTelegramMessage(env, env.TELEGRAM_ADMIN_CHAT_ID, `Order ${orderCode} nggak ketemu di database.`);
-    return;
+  let data = await getD1OrderContext(orderCode, env);
+  let isD1 = Boolean(data);
+  if (!data) {
+    const dataRaw = await env.BUNGA_ICE_ORDERS.get(`order:${orderCode}`);
+    if (!dataRaw) {
+      await sendTelegramMessage(env, env.TELEGRAM_ADMIN_CHAT_ID, `Order ${orderCode} nggak ketemu di database.`);
+      return;
+    }
+    data = JSON.parse(dataRaw);
   }
-
-  const data = JSON.parse(dataRaw);
   if (!data.chatId) {
-    await sendTelegramMessage(
-      env,
-      env.TELEGRAM_ADMIN_CHAT_ID,
-      `Customer buat order ${orderCode} belum kirim bukti bayar / belum ke-link.`
-    );
+    await sendTelegramMessage(env, env.TELEGRAM_ADMIN_CHAT_ID, `Customer buat order ${orderCode} belum kirim bukti bayar / belum ke-link.`);
     return;
   }
-
   if (command === "ok") {
-  data.status = "diterima";
-  const struk = formatStruk(data.order);
-  await sendTelegramMessage(env, data.chatId, struk);
-}
-
-else if (command === "masalah") {
+    data.status = "diterima";
+    await sendTelegramMessage(env, data.chatId, formatStruk(data.order));
+  } else if (command === "masalah") {
     const alasan = parts.slice(2).join(" ") || "Ada kendala pada bukti pembayaran";
     data.status = "masalah";
-    await sendTelegramMessage(
-      env,
-      data.chatId,
-      `⚠️ Ada kendala pada order ${orderCode}: ${alasan}\n\nMohon hubungi kami lagi di sini ya.`
-    );
-  }
-
- else {
+    await sendTelegramMessage(env, data.chatId, `⚠️ Ada kendala pada order ${orderCode}: ${alasan}\n\nMohon hubungi kami lagi di sini ya.`);
+  } else {
     return;
   }
-
-  await env.BUNGA_ICE_ORDERS.put(`order:${orderCode}`, JSON.stringify(data));
+  if (isD1) {
+    await env.BUNGA_ICE_DB.prepare(`UPDATE orders SET status = ?, updated_at = datetime('now') WHERE order_code = ?`).bind(data.status, orderCode).run();
+  } else {
+    await env.BUNGA_ICE_ORDERS.put(`order:${orderCode}`, JSON.stringify(data));
+  }
 }
 
 async function sendTelegramMessage(env, chatId, text) {
