@@ -160,54 +160,55 @@ function jsonResponse(data, status, corsHeaders) {
 
 async function handleNewOrder(order, env, corsHeaders) {
   try {
-    const itemsText = order.items
-      .map((item) => {
-        const varian = item.varianTerpilih.map((v) => v.nama_varian).join(", ");
-        const namaLengkap = varian ? `${item.namaProduk} (${varian})` : item.namaProduk;
-        const subtotal = item.hargaSatuan * item.qty;
-        return `• ${item.qty}x ${namaLengkap} - Rp${subtotal.toLocaleString("id-ID")}`;
-      })
-      .join("\n");
+    if (!env.BUNGA_ICE_DB) throw new Error("D1 belum terpasang");
+    if (!order.orderCode || !/^BIS-\d{6}-[A-Z0-9]{4}$/.test(order.orderCode)) throw new Error("Kode order tidak valid");
+    if (!Array.isArray(order.items) || order.items.length === 0) throw new Error("Pesanan kosong");
+    if (!["hari_ini", "besok"].includes(order.ambil) || !order.jamAmbil) throw new Error("Waktu pengambilan tidak valid");
 
-    const ambilText = order.ambil === "hari_ini" ? "Hari ini" : "Besok";
+    const normalized = [];
+    let serverTotal = 0;
+    for (const item of order.items) {
+      const productId = String(item.produkId || item.productId || "");
+      const quantity = Math.floor(Number(item.qty));
+      if (!productId || !Number.isInteger(quantity) || quantity < 1 || quantity > 99) throw new Error("Item order tidak valid");
+      const productResult = await env.BUNGA_ICE_DB.prepare(`SELECT id, name, base_price FROM products WHERE id = ? AND is_active = 1 AND is_available = 1`).bind(productId).all();
+      const product = productResult.results?.[0];
+      if (!product) throw new Error(`Produk ${productId} tidak tersedia`);
 
-    let message =
-      `🛍️ Order Baru!\n\n` +
-      `Kode: ${order.orderCode}\n\n` +
-      `${itemsText}\n\n` +
-      `Total: Rp${Number(order.total).toLocaleString("id-ID")}\n` +
-      `Ambil: ${ambilText}, jam ${order.jamAmbil}`;
-
-    if (order.namaPemesan) {
-      message += `\nNama: ${order.namaPemesan}`;
+      const selected = Array.isArray(item.varianTerpilih) ? item.varianTerpilih : [];
+      const variantIds = selected.map((v) => String(v.id_varian || "")).filter(Boolean);
+      let variants = [];
+      if (variantIds.length) {
+        const placeholders = variantIds.map(() => "?").join(",");
+        const variantResult = await env.BUNGA_ICE_DB.prepare(`SELECT v.id, v.name, v.price_delta, vg.product_id FROM variants v JOIN variant_groups vg ON vg.id = v.group_id WHERE v.id IN (${placeholders}) AND v.is_active = 1 AND vg.is_active = 1 AND vg.product_id = ?`).bind(...variantIds, productId).all();
+        variants = variantResult.results || [];
+        if (variants.length !== variantIds.length) throw new Error(`Varian ${productId} tidak valid`);
+      }
+      const variantSnapshot = variants.map((v) => ({ id_varian: v.id, nama_varian: v.name, tambah_harga: Number(v.price_delta || 0) }));
+      const unitPrice = Number(product.base_price) + variantSnapshot.reduce((sum, v) => sum + v.tambah_harga, 0);
+      const subtotal = unitPrice * quantity;
+      serverTotal += subtotal;
+      normalized.push({ productId, productName: product.name, unitPrice, quantity, variants: variantSnapshot, subtotal });
     }
-    if (order.noHp) {
-      message += `\nHP: ${order.noHp}`;
+    if (Number(order.total) !== serverTotal) throw new Error("Total pesanan tidak sesuai harga menu");
+
+    const orderId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    const orderInsert = env.BUNGA_ICE_DB.prepare(`INSERT INTO orders (id, order_code, customer_name, customer_phone, pickup_day, pickup_time, note, status, total, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'menunggu_bukti', ?, ?, ?)`).bind(orderId, order.orderCode, String(order.namaPemesan || "").slice(0, 120), String(order.noHp || "").slice(0, 40), order.ambil, order.jamAmbil, String(order.catatan || "").slice(0, 500), serverTotal, createdAt);
+    const itemStatements = normalized.map((item) => env.BUNGA_ICE_DB.prepare(`INSERT INTO order_items (id, order_id, product_id, product_name_snapshot, unit_price_snapshot, quantity, variants_json, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(crypto.randomUUID(), orderId, item.productId, item.productName, item.unitPrice, item.quantity, JSON.stringify(item.variants), item.subtotal));
+    await env.BUNGA_ICE_DB.batch([orderInsert, ...itemStatements]);
+
+    if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_ADMIN_CHAT_ID) {
+      const itemsText = normalized.map((item) => `• ${item.quantity}x ${item.productName} - Rp${item.subtotal.toLocaleString("id-ID")}`).join("\n");
+      const message = `🛍️ Order Baru!\n\nKode: ${order.orderCode}\n\n${itemsText}\n\nTotal: Rp${serverTotal.toLocaleString("id-ID")}\nAmbil: ${order.ambil === "hari_ini" ? "Hari ini" : "Besok"}, jam ${order.jamAmbil}${order.namaPemesan ? `\nNama: ${order.namaPemesan}` : ""}${order.noHp ? `\nHP: ${order.noHp}` : ""}${order.catatan ? `\nCatatan: ${order.catatan}` : ""}\n\nMenunggu bukti pembayaran dari customer.`;
+      await sendTelegramMessage(env, env.TELEGRAM_ADMIN_CHAT_ID, message);
     }
-    if (order.catatan) {
-      message += `\nCatatan: ${order.catatan}`;
-    }
 
-    message += `\n\nMenunggu bukti pembayaran dari customer.`;
-
-    await sendTelegramMessage(env, env.TELEGRAM_ADMIN_CHAT_ID, message);
-
-    await env.BUNGA_ICE_ORDERS.put(
-      `order:${order.orderCode}`,
-      JSON.stringify({ status: "menunggu_bukti", chatId: null, order })
-    );
-
-    return new Response(
-      JSON.stringify({ success: true, orderCode: order.orderCode }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-} catch (err) {
-  console.log("ERROR DI HANDLENEWORDER:", err.message);
-  return new Response(
-    JSON.stringify({ success: false, error: err.message }),
-    { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-  );
-}
+    return jsonResponse({ success: true, orderCode: order.orderCode, total: serverTotal, notification: Boolean(env.TELEGRAM_BOT_TOKEN) }, 200, corsHeaders);
+  } catch (err) {
+    console.log("ERROR DI HANDLENEWORDER:", err.message);
+    return jsonResponse({ success: false, error: err.message }, 400, corsHeaders);
+  }
 }
 
 async function handleTelegramUpdate(body, env) {

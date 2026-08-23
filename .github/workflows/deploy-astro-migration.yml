@@ -25,6 +25,7 @@ jobs:
         env:
           PUBLIC_CATALOG_URL: https://bunga-ice-worker-migration.rendychristi.workers.dev/api/catalog
           PUBLIC_ADMIN_API_URL: https://bunga-ice-worker-migration.rendychristi.workers.dev
+          PUBLIC_ORDER_API_URL: https://bunga-ice-worker-migration.rendychristi.workers.dev
           PUBLIC_GAS_URL: https://script.google.com/macros/s/AKfycbzH-tfUOsJZZYn9kLXkoDoAj2_FwoJ2bnIZNcP1UPuTL9N4Ag7t-qv9o_ajaChJKkmg/exec
 
       - name: Create preview Worker config
