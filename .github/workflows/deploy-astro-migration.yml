@@ -1,0 +1,46 @@
+name: Deploy Astro Migration Preview
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Astro migration branch
+        uses: actions/checkout@v4
+        with:
+          repository: rndchristi-cell/bunga-ice-astro
+          ref: migration-d1-r2
+          path: astro
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install and build Astro migration
+        working-directory: astro
+        run: npm ci && npm run build
+        env:
+          PUBLIC_CATALOG_URL: https://bunga-ice-worker-migration.rendychristi.workers.dev/api/catalog
+          PUBLIC_ADMIN_API_URL: https://bunga-ice-worker-migration.rendychristi.workers.dev
+          PUBLIC_GAS_URL: https://script.google.com/macros/s/AKfycbzH-tfUOsJZZYn9kLXkoDoAj2_FwoJ2bnIZNcP1UPuTL9N4Ag7t-qv9o_ajaChJKkmg/exec
+
+      - name: Create preview Worker config
+        working-directory: astro
+        run: |
+          cat > wrangler.preview.jsonc <<'JSON'
+          {
+            "name": "bunga-ice-astro-migration",
+            "compatibility_date": "2026-07-25",
+            "assets": { "directory": "./dist" }
+          }
+          JSON
+
+      - name: Deploy Astro migration preview
+        working-directory: astro
+        run: npx wrangler@4.125.0 deploy --config wrangler.preview.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
