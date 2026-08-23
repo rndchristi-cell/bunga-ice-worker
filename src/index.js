@@ -58,7 +58,7 @@ async function handleCatalog(env, corsHeaders) {
     return jsonResponse({ success: false, error: "D1 belum terpasang" }, 503, corsHeaders);
   }
   const products = await env.BUNGA_ICE_DB.prepare(`
-    SELECT p.id, p.name, p.slug, p.description, p.base_price AS harga,
+    SELECT p.id, p.category_id, p.name, p.slug, p.description, p.base_price AS harga,
            p.is_available AS tersedia, p.is_active AS aktif, p.sort_order,
            c.name AS kategori
     FROM products p
@@ -102,7 +102,7 @@ async function handleCatalog(env, corsHeaders) {
     produk: (products.results || []).map((p) => ({
       id: p.id, nama: p.name, harga: Number(p.harga), foto: imageMap[p.id] || [],
       deskripsi: p.description, aktif: Boolean(p.aktif), tersedia: Boolean(p.tersedia),
-      kategori: p.kategori || "Menu",
+      kategori_id: p.category_id || null, kategori: p.kategori || "Menu",
     })),
     varian: variantMap,
     config: { toko: "Bunga Ice and Snack" },
@@ -130,14 +130,35 @@ function adminAuthorized(request, env) {
 async function handleAdminApi(request, env, corsHeaders, url) {
   if (!adminAuthorized(request, env)) return jsonResponse({ success: false, error: "Auth required" }, 401, { ...corsHeaders, "WWW-Authenticate": 'Basic realm="Bunga Ice Admin"' });
   if (!env.BUNGA_ICE_DB) return jsonResponse({ success: false, error: "D1 belum terpasang" }, 503, corsHeaders);
+  if (url.pathname === "/api/admin/categories" && request.method === "GET") {
+    const data = await env.BUNGA_ICE_DB.prepare(`SELECT id, name, sort_order, is_active FROM categories WHERE is_active = 1 ORDER BY sort_order, name`).all();
+    return jsonResponse({ categories: data.results || [] }, 200, corsHeaders);
+  }
+  if (url.pathname === "/api/admin/categories" && request.method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    const name = String(body.name || "").trim();
+    if (!name || name.length > 60) return jsonResponse({ success: false, error: "Nama kategori wajib diisi maksimal 60 karakter" }, 400, corsHeaders);
+    const existing = await env.BUNGA_ICE_DB.prepare(`SELECT id FROM categories WHERE lower(name) = lower(?) AND is_active = 1`).bind(name).first();
+    if (existing) return jsonResponse({ success: false, error: "Kategori tersebut sudah ada" }, 409, corsHeaders);
+    const id = `CAT-${crypto.randomUUID().slice(0, 8)}`;
+    const next = await env.BUNGA_ICE_DB.prepare(`SELECT COALESCE(MAX(sort_order) + 1, 1) AS sort_order FROM categories`).first();
+    const sortOrder = Number(next?.sort_order || 1);
+    await env.BUNGA_ICE_DB.prepare(`INSERT INTO categories (id, name, sort_order, is_active) VALUES (?, ?, ?, 1)`).bind(id, name, sortOrder).run();
+    return jsonResponse({ success: true, category: { id, name, sort_order: sortOrder, is_active: 1 } }, 201, corsHeaders);
+  }
   if (url.pathname === "/api/admin/products" && request.method === "GET") {
-    const data = await env.BUNGA_ICE_DB.prepare(`SELECT id, name, description, base_price, is_active, is_available, sort_order FROM products ORDER BY sort_order, name`).all();
+    const data = await env.BUNGA_ICE_DB.prepare(`SELECT p.id, p.category_id, p.name, p.description, p.base_price, p.is_active, p.is_available, p.sort_order, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.sort_order, p.name`).all();
     return jsonResponse({ products: data.results || [] }, 200, corsHeaders);
   }
   if (url.pathname === "/api/admin/products" && request.method === "PUT") {
     const body = await request.json();
     if (!body.id || !body.name || !Number.isFinite(Number(body.base_price))) return jsonResponse({ success: false, error: "id, name, dan base_price wajib diisi" }, 400, corsHeaders);
-    await env.BUNGA_ICE_DB.prepare(`UPDATE products SET name = ?, description = ?, base_price = ?, is_active = ?, is_available = ?, sort_order = ?, updated_at = datetime('now') WHERE id = ?`).bind(String(body.name).trim(), String(body.description || "").trim(), Math.max(0, Math.round(Number(body.base_price))), body.is_active === false ? 0 : 1, body.is_available === false ? 0 : 1, Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0, String(body.id)).run();
+    const categoryId = String(body.category_id || "").trim() || null;
+    if (categoryId) {
+      const category = await env.BUNGA_ICE_DB.prepare(`SELECT id FROM categories WHERE id = ? AND is_active = 1`).bind(categoryId).first();
+      if (!category) return jsonResponse({ success: false, error: "Kategori tidak ditemukan" }, 400, corsHeaders);
+    }
+    await env.BUNGA_ICE_DB.prepare(`UPDATE products SET category_id = ?, name = ?, description = ?, base_price = ?, is_active = ?, is_available = ?, sort_order = ?, updated_at = datetime('now') WHERE id = ?`).bind(categoryId, String(body.name).trim(), String(body.description || "").trim(), Math.max(0, Math.round(Number(body.base_price))), body.is_active === false ? 0 : 1, body.is_available === false ? 0 : 1, Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0, String(body.id)).run();
     return jsonResponse({ success: true }, 200, corsHeaders);
   }
   if (url.pathname === "/api/admin/variants" && request.method === "GET") {
