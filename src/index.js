@@ -4,8 +4,8 @@ export default {
   async fetch(request, env) {
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
 
     if (request.method === "OPTIONS") {
@@ -15,6 +15,18 @@ export default {
 const url = new URL(request.url);
 if (request.method === "GET" && url.pathname === "/admin") {
   return handleAdminDashboard(request, env);
+}
+
+if (url.pathname === "/api/catalog" && request.method === "GET") {
+  return handleCatalog(env, corsHeaders);
+}
+
+if (url.pathname.startsWith("/media/") && request.method === "GET") {
+  return handleMedia(request, env);
+}
+
+if (url.pathname.startsWith("/api/admin/")) {
+  return handleAdminApi(request, env, corsHeaders, url);
 }
 
 if (request.method !== "POST") {
@@ -40,6 +52,111 @@ if (request.method !== "POST") {
     return new Response("Unrecognized payload", { status: 400, headers: corsHeaders });
   },
 };
+
+async function handleCatalog(env, corsHeaders) {
+  if (!env.BUNGA_ICE_DB) {
+    return jsonResponse({ success: false, error: "D1 belum terpasang" }, 503, corsHeaders);
+  }
+  const products = await env.BUNGA_ICE_DB.prepare(`
+    SELECT p.id, p.name, p.slug, p.description, p.base_price AS harga,
+           p.is_available AS tersedia, p.is_active AS aktif, p.sort_order,
+           c.name AS kategori
+    FROM products p
+    LEFT JOIN categories c ON c.id = p.category_id
+    WHERE p.is_active = 1 AND p.is_available = 1
+    ORDER BY p.sort_order, p.name
+  `).all();
+  const groups = await env.BUNGA_ICE_DB.prepare(`
+    SELECT vg.id AS group_id, vg.product_id, vg.name AS grup,
+           vg.input_type AS tipe, vg.is_required AS wajib,
+           v.id AS id_varian, v.name AS nama_varian,
+           v.price_delta AS tambah_harga
+    FROM variant_groups vg
+    LEFT JOIN variants v ON v.group_id = vg.id AND v.is_active = 1
+    WHERE vg.is_active = 1
+    ORDER BY vg.product_id, vg.sort_order, v.sort_order
+  `).all();
+  const images = await env.BUNGA_ICE_DB.prepare(`
+    SELECT product_id, object_key, alt_text, sort_order
+    FROM product_images WHERE is_active = 1
+    ORDER BY product_id, sort_order
+  `).all();
+  const imageMap = {};
+  for (const image of images.results || []) {
+    (imageMap[image.product_id] ||= []).push(`/media/${encodeURIComponent(image.object_key)}`);
+  }
+  const variantMap = {};
+  for (const row of groups.results || []) {
+    const product = (variantMap[row.product_id] ||= {});
+    const list = (product[row.grup] ||= []);
+    if (row.id_varian) list.push({
+      id_varian: row.id_varian,
+      nama_varian: row.nama_varian,
+      tambah_harga: Number(row.tambah_harga || 0),
+      aktif: true,
+      wajib: Boolean(row.wajib),
+      tipe: row.tipe,
+    });
+  }
+  return jsonResponse({
+    produk: (products.results || []).map((p) => ({
+      id: p.id, nama: p.name, harga: Number(p.harga), foto: imageMap[p.id] || [],
+      deskripsi: p.description, aktif: Boolean(p.aktif), tersedia: Boolean(p.tersedia),
+      kategori: p.kategori || "Menu",
+    })),
+    varian: variantMap,
+    config: { toko: "Bunga Ice and Snack" },
+  }, 200, corsHeaders);
+}
+
+async function handleMedia(request, env) {
+  if (!env.BUNGA_ICE_ASSETS) return new Response("R2 belum terpasang", { status: 503 });
+  const url = new URL(request.url);
+  const key = decodeURIComponent(url.pathname.slice("/media/".length));
+  if (!key || key.includes("..")) return new Response("Invalid asset key", { status: 400 });
+  const object = await env.BUNGA_ICE_ASSETS.get(key);
+  if (!object) return new Response("Not found", { status: 404 });
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set("cache-control", "public, max-age=31536000, immutable");
+  return new Response(object.body, { headers });
+}
+
+function adminAuthorized(request, env) {
+  const auth = request.headers.get("Authorization");
+  return Boolean(auth && env.ADMIN_PASSWORD && checkAuth(auth, env.ADMIN_PASSWORD));
+}
+
+async function handleAdminApi(request, env, corsHeaders, url) {
+  if (!adminAuthorized(request, env)) return jsonResponse({ success: false, error: "Auth required" }, 401, { ...corsHeaders, "WWW-Authenticate": 'Basic realm="Bunga Ice Admin"' });
+  if (!env.BUNGA_ICE_DB) return jsonResponse({ success: false, error: "D1 belum terpasang" }, 503, corsHeaders);
+  if (url.pathname === "/api/admin/products" && request.method === "GET") {
+    const data = await env.BUNGA_ICE_DB.prepare(`SELECT id, name, description, base_price, is_active, is_available, sort_order FROM products ORDER BY sort_order, name`).all();
+    return jsonResponse({ products: data.results || [] }, 200, corsHeaders);
+  }
+  if (url.pathname === "/api/admin/products" && request.method === "PUT") {
+    const body = await request.json();
+    if (!body.id || !body.name || !Number.isFinite(Number(body.base_price))) return jsonResponse({ success: false, error: "id, name, dan base_price wajib diisi" }, 400, corsHeaders);
+    await env.BUNGA_ICE_DB.prepare(`UPDATE products SET name = ?, description = ?, base_price = ?, is_active = ?, is_available = ?, sort_order = ?, updated_at = datetime('now') WHERE id = ?`).bind(String(body.name).trim(), String(body.description || "").trim(), Math.max(0, Math.round(Number(body.base_price))), body.is_active === false ? 0 : 1, body.is_available === false ? 0 : 1, Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0, String(body.id)).run();
+    return jsonResponse({ success: true }, 200, corsHeaders);
+  }
+  if (url.pathname === "/api/admin/upload" && request.method === "POST") {
+    if (!env.BUNGA_ICE_ASSETS) return jsonResponse({ success: false, error: "R2 belum terpasang" }, 503, corsHeaders);
+    const form = await request.formData();
+    const file = form.get("file");
+    if (!(file instanceof File)) return jsonResponse({ success: false, error: "file wajib diisi" }, 400, corsHeaders);
+    if (!file.type.startsWith("image/") || file.size > 5 * 1024 * 1024) return jsonResponse({ success: false, error: "File harus gambar maksimal 5MB" }, 400, corsHeaders);
+    const safeName = file.name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+    const key = `products/${crypto.randomUUID()}-${safeName}`;
+    await env.BUNGA_ICE_ASSETS.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+    return jsonResponse({ success: true, object_key: key, url: `/media/${encodeURIComponent(key)}` }, 201, corsHeaders);
+  }
+  return jsonResponse({ success: false, error: "Admin route tidak ditemukan" }, 404, corsHeaders);
+}
+
+function jsonResponse(data, status, corsHeaders) {
+  return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+}
 
 async function handleNewOrder(order, env, corsHeaders) {
   try {
