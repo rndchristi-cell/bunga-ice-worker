@@ -497,8 +497,8 @@ function formatStruk(order) {
     `TOTAL${" ".repeat(19 - String(Number(order.total).toLocaleString("id-ID")).length)}Rp${Number(order.total).toLocaleString("id-ID")}\n` +
     "────────────────────────\n\n" +
     `Ambil: ${ambilText}, jam ${order.jamAmbil}\n\n` +
-    "Tunjukin struk ini ke kakak\n" +
-    "pas ambil pesanan ya 🙏\n" +
+    "Tunjukin struk ini \n" +
+    "saat ambil pesanan ya 🙏\n" +
     "```"
   );
 }
